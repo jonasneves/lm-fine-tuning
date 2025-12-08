@@ -1,0 +1,91 @@
+name: Dashboard Server
+on:
+  workflow_dispatch:
+    inputs:
+      duration_hours:
+        description: 'Hours to run before auto-restart'
+        default: '5.5'
+        required: false
+      auto_restart:
+        description: 'Enable auto-restart'
+        default: 'true'
+        required: false
+
+jobs:
+  run-dashboard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # 6 hours max
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          cd app/dashboard/api
+          pip install -r requirements.txt
+          cd ../../../
+          pip install httpx  # For keep_alive script
+
+      - name: Install Cloudflared
+        run: |
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+
+      - name: Start Dashboard Server with Cloudflare Tunnel
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          CLOUDFLARE_TUNNEL_TOKEN: ${{ secrets.CLOUDFLARE_TUNNEL_TOKEN_DASHBOARD }}
+          GITHUB_REPOSITORY_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPOSITORY_NAME: ${{ github.event.repository.name }}
+          GITHUB_WORKFLOW: dashboard.yml
+        run: |
+          # Start Dashboard API server in background
+          cd app/dashboard/api
+          python server.py &
+          API_PID=$!
+          echo "Dashboard API started with PID: $API_PID"
+
+          # Start Cloudflare tunnel in background
+          cloudflared tunnel --no-autoupdate run --token $CLOUDFLARE_TUNNEL_TOKEN &
+          TUNNEL_PID=$!
+          echo "Cloudflare Tunnel started with PID: $TUNNEL_PID"
+
+          # Wait for services to be ready
+          sleep 10
+
+          # Check if services are running
+          if ! kill -0 $API_PID 2>/dev/null; then
+            echo "Error: Dashboard API failed to start"
+            exit 1
+          fi
+
+          if ! kill -0 $TUNNEL_PID 2>/dev/null; then
+            echo "Error: Cloudflare tunnel failed to start"
+            exit 1
+          fi
+
+          echo "Services started successfully"
+          echo "Dashboard API PID: $API_PID"
+          echo "Tunnel PID: $TUNNEL_PID"
+
+          # Run keep-alive manager (monitors and restarts before timeout)
+          cd ../../..
+          python scripts/keep_alive.py \
+            --duration ${{ inputs.duration_hours }} \
+            --auto-restart ${{ inputs.auto_restart }} \
+            --pids "$API_PID,$TUNNEL_PID"
+
+      - name: Cleanup on failure
+        if: failure()
+        run: |
+          echo "Workflow failed - cleaning up"
+          pkill -f "python server.py" || true
+          pkill cloudflared || true

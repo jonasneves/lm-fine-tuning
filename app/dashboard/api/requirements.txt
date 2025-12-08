@@ -1,0 +1,19 @@
+# REST API Server Dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+httpx==0.25.2
+huggingface-hub==0.19.4
+python-dotenv==1.0.0
+pyyaml==6.0.1
+python-multipart==0.0.6
+
+# GitHub API integration
+PyGithub==2.1.1
+
+# Database (optional - for persistent storage)
+sqlalchemy==2.0.23
+aiosqlite==0.19.0
+
+# CORS support
+fastapi-cors==0.0.6

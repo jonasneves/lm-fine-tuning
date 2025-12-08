@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LM Fine-Tuning Dashboard</title>
+    <link rel="stylesheet" href="/static/common.css">
+    <style>
+        /* Additional dashboard-specific styles */
+        .job-progress {
+            width: 100%;
+            height: 8px;
+            background: var(--bg-tertiary);
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 12px 0;
+        }
+
+        .job-progress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #1e3a5f 0%, #2c4f7c 100%);
+            transition: width 0.3s ease;
+        }
+
+        .loss-chart {
+            width: 100%;
+            height: 60px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            margin-top: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 8px;">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: #1e3a5f;">
+                    <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                    <path d="M2 17l10 5 10-5"></path>
+                    <path d="M2 12l10 5 10-5"></path>
+                </svg>
+                <h1 style="margin-bottom: 0;">LM Fine-Tuning Dashboard</h1>
+            </div>
+            <p>Manage and monitor language model fine-tuning jobs with zero infrastructure cost</p>
+        </div>
+
+        <!-- Stats Overview -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="label">Active Jobs</div>
+                <div class="value green" id="activeJobs">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Completed (24h)</div>
+                <div class="value blue" id="completedJobs">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Total Cost (Month)</div>
+                <div class="value" id="totalCost">$0.00</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Budget Remaining</div>
+                <div class="value orange" id="budgetRemaining">$1000.00</div>
+            </div>
+        </div>
+
+        <!-- Actions Bar -->
+        <div class="actions-bar">
+            <button class="btn btn-primary" onclick="showNewJobModal()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                <span>New Training Job</span>
+            </button>
+            <button class="btn btn-secondary" onclick="refreshJobs()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"></path>
+                </svg>
+                <span>Refresh</span>
+            </button>
+            <button class="btn btn-secondary" onclick="validateDataset()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="9 11 12 14 22 4"></polyline>
+                    <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                </svg>
+                <span>Validate Dataset</span>
+            </button>
+            <div style="margin-left: auto; color: #6B7280; font-size: 13px;">
+                Last updated: <span id="lastUpdate">just now</span>
+            </div>
+        </div>
+
+        <!-- Jobs Grid -->
+        <div class="jobs-grid" id="jobsGrid">
+            <!-- Job cards will be inserted here by JavaScript -->
+        </div>
+    </div>
+
+    <!-- New Job Modal -->
+    <div class="modal" id="newJobModal">
+        <div class="modal-content">
+            <h2>Create Training Job</h2>
+
+            <div class="form-group">
+                <label>Base Model</label>
+                <select id="modelSelect">
+                    <option value="Qwen/Qwen2.5-0.5B">Qwen 2.5 0.5B (Fast, Low Cost)</option>
+                    <option value="Qwen/Qwen2.5-1.5B">Qwen 2.5 1.5B (Balanced)</option>
+                    <option value="Qwen/Qwen2.5-3B">Qwen 2.5 3B (High Quality)</option>
+                    <option value="Qwen/Qwen2.5-7B">Qwen 2.5 7B (Best Quality)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Dataset</label>
+                <input type="text" id="datasetInput" placeholder="e.g., open-r1/codeforces-cots">
+            </div>
+
+            <div class="form-group">
+                <label>Training Method</label>
+                <select id="methodSelect">
+                    <option value="sft">Supervised Fine-Tuning (SFT)</option>
+                    <option value="dpo">Direct Preference Optimization (DPO)</option>
+                    <option value="grpo">Group Relative Policy Optimization (GRPO)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Hardware</label>
+                <select id="hardwareSelect" onchange="updateCostEstimate()">
+                    <option value="t4-small">t4-small ($0.75/hr) - Best for 0.5B models</option>
+                    <option value="t4-medium">t4-medium ($1.00/hr) - Best for 1.5B models</option>
+                    <option value="a10g-small">a10g-small ($1.50/hr) - Best for 3B models</option>
+                    <option value="a10g-large">a10g-large ($2.50/hr) - Best for 3-7B models</option>
+                    <option value="a100-large">a100-large ($5.00/hr) - Best for 7B+ models</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Epochs</label>
+                <input type="number" id="epochsInput" value="3" min="1" max="10" onchange="updateCostEstimate()">
+            </div>
+
+            <div id="costEstimate" style="margin: 20px 0; padding: 16px; background: #f7fafc; border-radius: 8px; display: none;">
+                <div style="font-weight: 600; margin-bottom: 8px;">Cost Estimate</div>
+                <div style="font-size: 24px; font-weight: 700; color: #1e3a5f;" id="estimatedCost">$0.00</div>
+                <div style="font-size: 13px; color: #6B7280; margin-top: 4px;" id="estimatedTime">~0 minutes</div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeNewJobModal()">Cancel</button>
+                <button class="btn btn-primary" onclick="estimateCost()">Estimate Cost</button>
+                <button class="btn btn-success" onclick="submitJob()" id="submitBtn" style="display: none;">Start Training</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // API base URL
+        const API_BASE = window.location.origin;
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', () => {
+            loadDashboard();
+            setInterval(refreshJobs, 30000); // Refresh every 30 seconds
+        });
+
+        async function loadDashboard() {
+            await Promise.all([
+                loadStats(),
+                loadJobs()
+            ]);
+        }
+
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_BASE}/api/system/stats`);
+                const data = await response.json();
+
+                document.getElementById('activeJobs').textContent = data.active_jobs;
+                document.getElementById('completedJobs').textContent = data.completed_jobs;
+
+                const costsResponse = await fetch(`${API_BASE}/api/costs`);
+                const costs = await costsResponse.json();
+
+                document.getElementById('totalCost').textContent = `$${costs.current_month.spent_usd.toFixed(2)}`;
+                document.getElementById('budgetRemaining').textContent = `$${costs.budget_remaining_usd.toFixed(2)}`;
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+            }
+        }
+
+        async function loadJobs() {
+            try {
+                const response = await fetch(`${API_BASE}/api/jobs?limit=20`);
+                const data = await response.json();
+
+                const grid = document.getElementById('jobsGrid');
+                grid.innerHTML = '';
+
+                if (data.jobs.length === 0) {
+                    grid.innerHTML = `
+                        <div style="grid-column: 1 / -1; text-align: center; padding: 60px 20px; color: #6B7280;">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" style="margin-bottom: 16px; opacity: 0.3;">
+                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                                <line x1="9" y1="9" x2="15" y2="15"></line>
+                                <line x1="15" y1="9" x2="9" y2="15"></line>
+                            </svg>
+                            <div style="font-size: 18px; font-weight: 600; margin-bottom: 8px;">No training jobs yet</div>
+                            <div style="font-size: 14px;">Click "New Training Job" to get started</div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                data.jobs.forEach(job => {
+                    grid.appendChild(createJobCard(job));
+                });
+            } catch (error) {
+                console.error('Failed to load jobs:', error);
+            }
+        }
+
+        function createJobCard(job) {
+            const card = document.createElement('div');
+            card.className = 'job-card';
+
+            const statusColors = {
+                running: 'status-running pulse',
+                completed: 'status-completed',
+                failed: 'status-failed',
+                pending: 'status-pending'
+            };
+
+            const progress = job.progress || 0;
+            const progressPercent = Math.round(progress * 100);
+
+            card.innerHTML = `
+                <div class="job-header">
+                    <div class="job-title">
+                        <div class="job-icon" style="background: linear-gradient(135deg, #1e3a5f 0%, #2c4f7c 100%);">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+                                <path d="M2 17l10 5 10-5"></path>
+                                <path d="M2 12l10 5 10-5"></path>
+                            </svg>
+                        </div>
+                        <div>
+                            <div class="job-name">${job.model.split('/')[1]}</div>
+                            <div class="job-type">${job.method.toUpperCase()}</div>
+                        </div>
+                    </div>
+                    <span class="status-badge ${statusColors[job.status]}">${job.status}</span>
+                </div>
+
+                ${job.status === 'running' ? `
+                    <div class="job-progress">
+                        <div class="job-progress-bar" style="width: ${progressPercent}%"></div>
+                    </div>
+                    <div style="font-size: 12px; color: #6B7280; text-align: center; margin-top: 4px;">
+                        ${progressPercent}% complete
+                    </div>
+                ` : ''}
+
+                <div class="job-stats">
+                    <div>
+                        <div class="job-stat-label">Dataset</div>
+                        <div class="job-stat-value" style="font-size: 13px;">${job.dataset.split('/')[1] || job.dataset}</div>
+                    </div>
+                    <div>
+                        <div class="job-stat-label">Hardware</div>
+                        <div class="job-stat-value" style="font-size: 13px;">${job.hardware || 't4-small'}</div>
+                    </div>
+                    <div>
+                        <div class="job-stat-label">Cost</div>
+                        <div class="job-stat-value">$${(job.cost_so_far_usd || job.cost_usd || 0).toFixed(2)}</div>
+                    </div>
+                    <div>
+                        <div class="job-stat-label">Job ID</div>
+                        <div class="job-stat-value" style="font-size: 11px; font-family: monospace;">${job.job_id.substring(0, 12)}...</div>
+                    </div>
+                </div>
+
+                <div class="job-controls">
+                    <button class="btn btn-secondary btn-small" onclick="viewJobDetails('${job.job_id}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                            <circle cx="12" cy="12" r="3"></circle>
+                        </svg>
+                        <span>Details</span>
+                    </button>
+                    ${job.status === 'running' ? `
+                        <button class="btn btn-danger btn-small" onclick="cancelJob('${job.job_id}')">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="6" y="6" width="12" height="12"></rect>
+                            </svg>
+                            <span>Cancel</span>
+                        </button>
+                    ` : ''}
+                    ${job.status === 'completed' ? `
+                        <button class="btn btn-primary btn-small" onclick="convertToGGUF('${job.model_url || job.model}')">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="16 16 12 12 8 16"></polyline>
+                                <line x1="12" y1="12" x2="12" y2="21"></line>
+                                <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"></path>
+                            </svg>
+                            <span>GGUF</span>
+                        </button>
+                    ` : ''}
+                </div>
+            `;
+
+            return card;
+        }
+
+        function showNewJobModal() {
+            document.getElementById('newJobModal').classList.add('active');
+        }
+
+        function closeNewJobModal() {
+            document.getElementById('newJobModal').classList.remove('active');
+            document.getElementById('costEstimate').style.display = 'none';
+            document.getElementById('submitBtn').style.display = 'none';
+        }
+
+        async function estimateCost() {
+            const model = document.getElementById('modelSelect').value;
+            const dataset = document.getElementById('datasetInput').value;
+            const hardware = document.getElementById('hardwareSelect').value;
+            const epochs = parseInt(document.getElementById('epochsInput').value);
+
+            if (!dataset) {
+                alert('Please enter a dataset');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/api/costs/estimate?model=${encodeURIComponent(model)}&dataset=${encodeURIComponent(dataset)}&hardware=${hardware}&epochs=${epochs}`);
+                const data = await response.json();
+
+                document.getElementById('estimatedCost').textContent = `$${data.estimated_cost_usd.toFixed(2)}`;
+                document.getElementById('estimatedTime').textContent = `~${data.estimated_time_minutes} minutes`;
+                document.getElementById('costEstimate').style.display = 'block';
+                document.getElementById('submitBtn').style.display = 'inline-flex';
+            } catch (error) {
+                alert('Failed to estimate cost: ' + error.message);
+            }
+        }
+
+        async function submitJob() {
+            const model = document.getElementById('modelSelect').value;
+            const dataset = document.getElementById('datasetInput').value;
+            const method = document.getElementById('methodSelect').value;
+            const hardware = document.getElementById('hardwareSelect').value;
+            const epochs = parseInt(document.getElementById('epochsInput').value);
+
+            try {
+                const response = await fetch(`${API_BASE}/api/jobs`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        model,
+                        dataset,
+                        method,
+                        hardware,
+                        config: {epochs}
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.status === 'submitted') {
+                    alert(`Training job submitted successfully!\\nJob ID: ${data.job_id}`);
+                    closeNewJobModal();
+                    loadDashboard();
+                } else {
+                    alert('Job submission failed: ' + (data.reason || data.message));
+                }
+            } catch (error) {
+                alert('Failed to submit job: ' + error.message);
+            }
+        }
+
+        async function refreshJobs() {
+            await loadDashboard();
+            document.getElementById('lastUpdate').textContent = 'just now';
+        }
+
+        async function cancelJob(jobId) {
+            if (!confirm('Are you sure you want to cancel this job?')) return;
+
+            try {
+                await fetch(`${API_BASE}/api/jobs/${jobId}/cancel`, {method: 'POST'});
+                alert('Job cancelled');
+                loadDashboard();
+            } catch (error) {
+                alert('Failed to cancel job: ' + error.message);
+            }
+        }
+
+        function viewJobDetails(jobId) {
+            alert(`Job details view coming soon!\\nJob ID: ${jobId}`);
+        }
+
+        function convertToGGUF(model) {
+            alert(`GGUF conversion coming soon!\\nModel: ${model}`);
+        }
+
+        function validateDataset() {
+            alert('Dataset validation modal coming soon!');
+        }
+    </script>
+</body>
+</html>

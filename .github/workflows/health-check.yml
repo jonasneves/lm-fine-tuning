@@ -1,0 +1,83 @@
+name: Health Check
+on:
+  schedule:
+    - cron: '*/10 * * * *'  # Every 10 minutes
+  workflow_dispatch:
+
+jobs:
+  check-services:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Check MCP Server
+        id: check-mcp
+        continue-on-error: true
+        env:
+          MCP_URL: ${{ secrets.MCP_SERVER_URL }}
+        run: |
+          if [ -z "$MCP_URL" ]; then
+            echo "MCP_URL not configured"
+            exit 0
+          fi
+
+          echo "Checking MCP Server at $MCP_URL"
+          response=$(curl -sf "$MCP_URL/health" || echo "failed")
+
+          if [ "$response" = "failed" ]; then
+            echo "mcp_status=down" >> $GITHUB_OUTPUT
+            echo "⚠️ MCP Server is down"
+          else
+            echo "mcp_status=up" >> $GITHUB_OUTPUT
+            echo "✅ MCP Server is healthy"
+          fi
+
+      - name: Check Dashboard API
+        id: check-api
+        continue-on-error: true
+        env:
+          API_URL: ${{ secrets.DASHBOARD_API_URL }}
+        run: |
+          if [ -z "$API_URL" ]; then
+            echo "API_URL not configured"
+            exit 0
+          fi
+
+          echo "Checking Dashboard API at $API_URL"
+          response=$(curl -sf "$API_URL/health" || echo "failed")
+
+          if [ "$response" = "failed" ]; then
+            echo "api_status=down" >> $GITHUB_OUTPUT
+            echo "⚠️ Dashboard API is down"
+          else
+            echo "api_status=up" >> $GITHUB_OUTPUT
+            echo "✅ Dashboard API is healthy"
+          fi
+
+      - name: Restart MCP Server if down
+        if: steps.check-mcp.outputs.mcp_status == 'down'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "🔄 Restarting MCP Server..."
+          gh workflow run mcp-server.yml
+
+      - name: Restart Dashboard if down
+        if: steps.check-api.outputs.api_status == 'down'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "🔄 Restarting Dashboard..."
+          gh workflow run dashboard.yml
+
+      - name: Post Status Summary
+        run: |
+          echo "### Service Health Check ⚕️" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**MCP Server**: ${{ steps.check-mcp.outputs.mcp_status || 'not configured' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Dashboard API**: ${{ steps.check-api.outputs.api_status || 'not configured' }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "_Checked at $(date -u '+%Y-%m-%d %H:%M:%S UTC')_" >> $GITHUB_STEP_SUMMARY
