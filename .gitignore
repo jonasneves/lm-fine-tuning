@@ -1,0 +1,89 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Hugging Face
+.huggingface/
+hf_token.txt
+*.token
+
+# Training outputs (local)
+checkpoints/
+outputs/
+runs/
+logs/
+*.log
+
+# Model files (too large for git)
+*.bin
+*.safetensors
+*.gguf
+*.pt
+*.pth
+
+# Data files (should be on HF Hub)
+data/
+datasets/raw/
+*.csv
+*.json
+*.jsonl
+*.parquet
+
+# Experiments
+experiments/*/checkpoints/
+experiments/*/outputs/
+wandb/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+*.bak
+*.swp
+*~
