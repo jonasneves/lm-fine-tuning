@@ -7,6 +7,9 @@ huggingface-hub==0.19.4
 python-dotenv==1.0.0
 pyyaml==6.0.1
 
+# For dataset validation
+datasets==2.15.0
+
 # For GitHub API integration
 PyGithub==2.1.1
 
