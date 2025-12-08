@@ -1,0 +1,14 @@
+# MCP Server Dependencies
+fastapi==0.104.1
+uvicorn==0.24.0
+pydantic==2.5.0
+httpx==0.25.2
+huggingface-hub==0.19.4
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# For GitHub API integration
+PyGithub==2.1.1
+
+# For monitoring and health checks
+psutil==5.9.6

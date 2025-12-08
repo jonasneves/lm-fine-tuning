@@ -1,0 +1,99 @@
+name: Train Model
+on:
+  workflow_dispatch:
+    inputs:
+      model_name:
+        description: 'Base model (e.g., Qwen/Qwen2.5-0.5B)'
+        required: true
+      dataset:
+        description: 'Dataset ID from Hugging Face Hub'
+        required: true
+      training_method:
+        description: 'Training method'
+        required: true
+        type: choice
+        options:
+          - sft
+          - dpo
+          - grpo
+      hardware:
+        description: 'GPU hardware'
+        required: true
+        type: choice
+        options:
+          - t4-small
+          - t4-medium
+          - a10g-small
+          - a10g-large
+          - a100-large
+      config_json:
+        description: 'Training config as JSON (epochs, learning_rate, etc.)'
+        required: false
+        default: '{}'
+
+  repository_dispatch:
+    types: [trigger_training]
+
+jobs:
+  submit-training-job:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install huggingface-hub httpx pyyaml
+
+      - name: Validate inputs
+        run: |
+          echo "Model: ${{ inputs.model_name }}"
+          echo "Dataset: ${{ inputs.dataset }}"
+          echo "Method: ${{ inputs.training_method }}"
+          echo "Hardware: ${{ inputs.hardware }}"
+          echo "Config: ${{ inputs.config_json }}"
+
+      - name: Submit Training Job to HF
+        id: submit
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python scripts/submit_training_job.py \
+            --model "${{ inputs.model_name }}" \
+            --dataset "${{ inputs.dataset }}" \
+            --method "${{ inputs.training_method }}" \
+            --hardware "${{ inputs.hardware }}" \
+            --config '${{ inputs.config_json }}'
+
+      - name: Monitor Job Progress (Optional)
+        if: ${{ github.event.inputs.monitor == 'true' }}
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # This step is optional - monitors job in real-time
+          # Can be skipped for async training
+          python scripts/monitor_job.py --job-id ${{ steps.submit.outputs.job_id }}
+
+      - name: Post to Summary
+        run: |
+          echo "### Training Job Submitted ✅" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Model**: ${{ inputs.model_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Dataset**: ${{ inputs.dataset }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Method**: ${{ inputs.training_method }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Hardware**: ${{ inputs.hardware }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Job ID**: \`${{ steps.submit.outputs.job_id }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "[Monitor on Hugging Face](https://huggingface.co/jobs/${{ steps.submit.outputs.job_id }})" >> $GITHUB_STEP_SUMMARY
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::error::Training job submission failed"
