@@ -112,7 +112,7 @@ class ValidationTools:
                 "valid": False,
                 "error": "No SFT-compatible format found",
                 "columns_found": columns,
-                "expected": ["messages", "text", or "prompt + completion"],
+                "expected": ["messages", "text", "prompt + completion"],
                 "suggestion": "Dataset should have 'messages', 'text', or 'prompt'+'completion' columns"
             }
 
