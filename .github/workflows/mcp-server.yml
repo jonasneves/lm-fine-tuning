@@ -52,8 +52,14 @@ jobs:
           MCP_PID=$!
           echo "MCP Server started with PID: $MCP_PID"
 
+          # Verify Cloudflare token is set
+          if [ -z "$CLOUDFLARE_TUNNEL_TOKEN" ]; then
+            echo "Error: CLOUDFLARE_TUNNEL_TOKEN is not set"
+            exit 1
+          fi
+
           # Start Cloudflare tunnel in background
-          cloudflared tunnel --no-autoupdate run --token $CLOUDFLARE_TUNNEL_TOKEN &
+          cloudflared tunnel --no-autoupdate run --token "$CLOUDFLARE_TUNNEL_TOKEN" &
           TUNNEL_PID=$!
           echo "Cloudflare Tunnel started with PID: $TUNNEL_PID"
 
