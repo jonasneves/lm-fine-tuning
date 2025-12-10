@@ -13,7 +13,7 @@ on:
 
 jobs:
   run-dashboard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 360  # 6 hours max
 
     steps:

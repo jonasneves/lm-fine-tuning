@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
 from huggingface_hub import HfApi
 import httpx
+from .storage import JobStorage
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +18,7 @@ class TrainingTools:
     def __init__(self, hf_api: Optional[HfApi] = None):
         self.hf_api = hf_api
         self.github_token = os.getenv("GH_TOKEN")
+        self.storage = JobStorage()
 
         # Hardware pricing (USD per hour)
         self.hardware_costs = {
@@ -88,9 +90,28 @@ class TrainingTools:
             workflow_run = await self._trigger_github_workflow(
                 model, dataset, method, hardware, config
             )
+
+            job_id = f"gh-{workflow_run['id']}"
+
+            # Save job to storage
+            job_data = {
+                "job_id": job_id,
+                "status": "pending",
+                "model": model,
+                "dataset": dataset,
+                "method": method,
+                "hardware": hardware,
+                "config": config,
+                "estimated_cost_usd": cost_estimate["estimated_cost_usd"],
+                "estimated_time_minutes": cost_estimate["estimated_time_minutes"],
+                "workflow_url": workflow_run["html_url"],
+                "backend": "github_actions"
+            }
+            self.storage.create_job(job_data)
+
             return {
                 "status": "submitted",
-                "job_id": f"gh-{workflow_run['id']}",
+                "job_id": job_id,
                 "method": "github_actions",
                 "estimated_cost": cost_estimate["estimated_cost_usd"],
                 "estimated_time_minutes": cost_estimate["estimated_time_minutes"],

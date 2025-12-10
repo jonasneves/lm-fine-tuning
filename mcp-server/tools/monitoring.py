@@ -3,9 +3,12 @@ Monitoring Tools - Job status and progress tracking
 """
 import logging
 import asyncio
+import os
+import httpx
 from typing import Dict, Any, Optional, AsyncGenerator
 from datetime import datetime
 from huggingface_hub import HfApi
+from .storage import JobStorage
 
 logger = logging.getLogger(__name__)
 
@@ -13,8 +16,12 @@ logger = logging.getLogger(__name__)
 class MonitoringTools:
     """Tools for monitoring training job status and costs"""
 
-    def __init__(self, hf_api: Optional[HfApi] = None):
+    def __init__(self, hf_api: Optional[HfApi] = None, github_token: Optional[str] = None):
         self.hf_api = hf_api
+        self.github_token = github_token or os.getenv("GH_TOKEN")
+        self.storage = JobStorage()
+        self.repo_owner = os.getenv("GITHUB_REPOSITORY_OWNER", "jonasneves")
+        self.repo_name = os.getenv("GITHUB_REPOSITORY_NAME", "lm-fine-tuning")
         self.job_cache = {}  # Simple in-memory cache
 
     async def get_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -67,13 +74,64 @@ class MonitoringTools:
 
         run_id = job_id.replace("gh-", "")
 
-        # TODO: Implement GitHub API integration
-        # Placeholder response
+        if not self.github_token:
+            raise ValueError("GitHub token not configured")
+
+        # Get workflow run details from GitHub API
+        url = f"https://api.github.com/repos/{self.repo_owner}/{self.repo_name}/actions/runs/{run_id}"
+
+        headers = {
+            "Authorization": f"Bearer {self.github_token}",
+            "Accept": "application/vnd.github.v3+json"
+        }
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers)
+            response.raise_for_status()
+            run_data = response.json()
+
+        # Map GitHub Actions status to our status
+        gh_status = run_data.get("status")
+        gh_conclusion = run_data.get("conclusion")
+
+        if gh_status == "completed":
+            if gh_conclusion == "success":
+                status = "completed"
+            elif gh_conclusion in ["failure", "cancelled", "timed_out"]:
+                status = "failed"
+            else:
+                status = "failed"
+        elif gh_status in ["queued", "waiting"]:
+            status = "pending"
+        elif gh_status == "in_progress":
+            status = "running"
+        else:
+            status = "unknown"
+
+        # Calculate progress (rough estimate based on elapsed time)
+        created_at = datetime.fromisoformat(run_data["created_at"].replace("Z", "+00:00"))
+        elapsed_minutes = (datetime.now(created_at.tzinfo) - created_at).total_seconds() / 60
+
+        # Get job from storage for additional metadata
+        job_data = self.storage.get_job(job_id) or {}
+
+        # Update job status in storage
+        self.storage.update_job(job_id, {"status": status})
+
         return {
             "job_id": job_id,
-            "status": "running",
-            "workflow_url": f"https://github.com/user/repo/actions/runs/{run_id}",
-            "message": "Training in progress via GitHub Actions"
+            "status": status,
+            "gh_status": gh_status,
+            "gh_conclusion": gh_conclusion,
+            "workflow_url": run_data.get("html_url"),
+            "elapsed_time_minutes": int(elapsed_minutes),
+            "created_at": run_data.get("created_at"),
+            "updated_at": run_data.get("updated_at"),
+            "model": job_data.get("model"),
+            "dataset": job_data.get("dataset"),
+            "method": job_data.get("method"),
+            "hardware": job_data.get("hardware"),
+            "message": f"Training {status} via GitHub Actions"
         }
 
     async def list_jobs(self, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -87,52 +145,23 @@ class MonitoringTools:
 
         logger.info(f"Listing jobs (status={status_filter}, limit={limit})")
 
-        # TODO: Implement actual job listing from HF Jobs API or database
-        # Placeholder response
-        jobs = [
-            {
-                "job_id": "job-001",
-                "status": "running",
-                "model": "Qwen/Qwen2.5-0.5B",
-                "dataset": "open-r1/codeforces-cots",
-                "method": "sft",
-                "progress": 0.45,
-                "started_at": datetime.utcnow().isoformat(),
-                "cost_so_far_usd": 0.15
-            },
-            {
-                "job_id": "job-002",
-                "status": "completed",
-                "model": "Qwen/Qwen2.5-1.5B",
-                "dataset": "my-org/custom-data",
-                "method": "dpo",
-                "progress": 1.0,
-                "started_at": "2025-12-07T10:00:00Z",
-                "completed_at": "2025-12-07T12:34:00Z",
-                "cost_usd": 2.45,
-                "model_url": "https://huggingface.co/user/model-name"
-            }
-        ]
-
-        # Filter by status if specified
-        if status_filter != "all":
-            jobs = [j for j in jobs if j["status"] == status_filter]
-
-        # Apply limit
-        jobs = jobs[:limit]
+        # Get jobs from storage
+        jobs = self.storage.list_jobs(
+            status=status_filter if status_filter != "all" else None,
+            limit=limit
+        )
 
         return {
             "jobs": jobs,
-            "count": len(jobs),
-            "filter": status_filter,
-            "limit": limit
+            "total": len(jobs),
+            "status_filter": status_filter
         }
 
     async def cancel_job(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Cancel a running training job
 
-        Stops the job and returns final costs
+        Cancels GitHub Actions workflow or HF Jobs API job
         """
         job_id = params.get("job_id")
         if not job_id:
@@ -140,15 +169,48 @@ class MonitoringTools:
 
         logger.info(f"Cancelling job {job_id}")
 
-        # TODO: Implement actual cancellation via HF Jobs API or GitHub Actions
+        # Get job from storage
+        job_data = self.storage.get_job(job_id)
+        if not job_data:
+            raise ValueError(f"Job {job_id} not found")
 
-        return {
-            "job_id": job_id,
-            "status": "cancelled",
-            "cancelled_at": datetime.utcnow().isoformat(),
-            "cost_usd": 0.23,
-            "message": "Job cancelled successfully"
-        }
+        # Check if already completed or failed
+        if job_data.get("status") in ["completed", "failed", "cancelled"]:
+            return {
+                "job_id": job_id,
+                "success": False,
+                "message": f"Job is already {job_data.get('status')}"
+            }
+
+        # Cancel GitHub Actions workflow
+        if job_id.startswith("gh-"):
+            run_id = job_id.replace("gh-", "")
+
+            if not self.github_token:
+                raise ValueError("GitHub token not configured")
+
+            url = f"https://api.github.com/repos/{self.repo_owner}/{self.repo_name}/actions/runs/{run_id}/cancel"
+
+            headers = {
+                "Authorization": f"Bearer {self.github_token}",
+                "Accept": "application/vnd.github.v3+json"
+            }
+
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, headers=headers)
+                response.raise_for_status()
+
+            # Update job status
+            self.storage.update_job(job_id, {"status": "cancelled"})
+
+            return {
+                "job_id": job_id,
+                "success": True,
+                "message": "Job cancelled successfully"
+            }
+        else:
+            # HF Jobs cancellation - TODO when HF Jobs API is available
+            raise NotImplementedError("HF Jobs cancellation not yet implemented")
 
     async def stream_progress(self, job_id: str) -> AsyncGenerator[Dict[str, Any], None]:
         """

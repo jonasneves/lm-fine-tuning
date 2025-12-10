@@ -1,6 +1,6 @@
 # LM Fine-Tuning Architecture
 
-Complete architecture for managing language model fine-tuning with zero infrastructure cost using GitHub Actions.
+Complete architecture for managing language model fine-tuning using GitHub Actions.
 
 ## Architecture Overview
 
@@ -46,7 +46,7 @@ on:
 
 jobs:
   run-mcp-server:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 360  # 6 hours max
 
     steps:
@@ -103,7 +103,7 @@ on:
 
 jobs:
   run-api-server:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
 
     steps:
@@ -138,7 +138,7 @@ on:
 
 jobs:
   run-dashboard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     timeout-minutes: 360
 
     steps:
@@ -186,7 +186,7 @@ on:
 
 jobs:
   train:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Submit to Hugging Face Jobs
         env:
@@ -460,7 +460,7 @@ on:
 
 jobs:
   check-services:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Check MCP Server
         run: |
@@ -495,7 +495,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04-arm
     steps:
       - name: Clone serverless-llm repo
         uses: actions/checkout@v4
